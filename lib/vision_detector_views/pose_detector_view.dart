@@ -4,7 +4,7 @@ import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
 import 'detector_view.dart';
-import 'painters/pose_painter.dart';
+import 'painters/pose_painter.dart';  // ✅ PosePainter original non modifié
 import 'curl_counter.dart';
 
 class PoseDetectorView extends StatefulWidget {
@@ -91,38 +91,66 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
             ),
           ),
 
-          // Indicateur du bras actif (en haut, sous l'état)
+          // ✅ SWITCH DE BRAS (en haut, sous l'état)
           Positioned(
             top: MediaQuery.of(context).viewPadding.top + 65,
             left: 0,
             right: 0,
             child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.purple.withOpacity(0.9),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black26,
-                      blurRadius: 6,
-                      offset: Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Text(
-                  _curlCounter.activeArmText,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
+              child: GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _curlCounter.switchArm();
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _curlCounter.selectedArm == ArmSelection.left 
+                        ? Colors.green.withOpacity(0.9)
+                        : Colors.blue.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 6,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _curlCounter.selectedArm == ArmSelection.left
+                            ? Icons.arrow_back
+                            : Icons.arrow_forward,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Bras ${_curlCounter.selectedArmText}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        Icons.sync,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
           ),
 
-          // Statut de calibration (en haut à droite, plus bas)
+          // Statut de calibration (en haut à droite)
           if (!_curlCounter.isCalibrated)
             Positioned(
               top: MediaQuery.of(context).viewPadding.top + 110,
@@ -188,7 +216,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
             ),
           ),
 
-          // Indicateur de qualité de la dernière rep (en bas, au-dessus du compteur)
+          // Indicateur de qualité de la dernière rep
           if (_curlCounter.count > 0)
             Positioned(
               bottom: MediaQuery.of(context).viewPadding.bottom + 180,
@@ -280,7 +308,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
               ),
             ),
 
-          // Bouton reset (en haut à gauche, plus bas)
+          // Bouton reset (en haut à gauche)
           Positioned(
             top: MediaQuery.of(context).viewPadding.top + 110,
             left: 16,
@@ -419,19 +447,13 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
       if (_curlCounter.count > previousCount) {
         // Ne pas utiliser await pour ne pas bloquer la détection
         _flutterTts.speak('${_curlCounter.count}');
-        
-        // Feedback haptique léger si disponible
-        // HapticFeedback.lightImpact(); // Décommenter si souhaité
       }
 
-      // 5️⃣ Filtrer les poses pour l'affichage
-      List<Pose> filteredPoses = _filterPoses(poses);
-
-      // 6️⃣ Dessine les landmarks filtrés
+      // 5️⃣ Dessine les landmarks avec PosePainter original
       if (inputImage.metadata?.size != null &&
           inputImage.metadata?.rotation != null) {
         final painter = PosePainter(
-          filteredPoses,
+          poses,
           inputImage.metadata!.size,
           inputImage.metadata!.rotation,
           _cameraLensDirection,
@@ -447,36 +469,5 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
 
     _isBusy = false;
     if (mounted) setState(() {});
-  }
-
-  /// Filtre les poses pour n'afficher que les landmarks pertinents
-  List<Pose> _filterPoses(List<Pose> poses) {
-    if (poses.isEmpty) return poses;
-    
-    // Obtenir les landmarks visibles selon l'exercice
-    Set<PoseLandmarkType> visibleTypes = _curlCounter.getVisibleLandmarkTypes();
-    
-    List<Pose> filteredPoses = [];
-    
-    for (Pose pose in poses) {
-      // Créer une nouvelle map avec uniquement les landmarks visibles
-      Map<PoseLandmarkType, PoseLandmark> filteredLandmarks = {};
-      
-      pose.landmarks.forEach((type, landmark) {
-        if (visibleTypes.contains(type)) {
-          filteredLandmarks[type] = landmark;
-        }
-      });
-      
-      // Créer une nouvelle Pose avec les landmarks filtrés
-      // Note: On garde les mêmes propriétés mais avec landmarks filtrés
-      Pose filteredPose = Pose(
-        landmarks: filteredLandmarks,
-      );
-      
-      filteredPoses.add(filteredPose);
-    }
-    
-    return filteredPoses;
   }
 }
