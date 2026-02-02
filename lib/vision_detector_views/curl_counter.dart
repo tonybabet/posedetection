@@ -40,7 +40,7 @@ class CurlCounter {
   bool _repCountedThisCycle = false;
   
   // ==================== LISSAGE ROBUSTE ====================
-  final int smoothingFrames = 5;  // Moyenne sur 5 frames (ESSENTIEL)
+  final int smoothingFrames = 3;  // ✅ RÉDUIT : Moyenne sur 3 frames (plus rapide)
   final List<double> _recentAngles = [];
   final List<double> _recentShoulderY = [];
   final List<double> _recentElbowX = [];
@@ -52,7 +52,7 @@ class CurlCounter {
   final List<double> _calibrationMaxAngles = [];
   
   // Angles dynamiques (s'adaptent à l'utilisateur)
-  double _minAngle = 40;   // Valeur par défaut
+  double _minAngle = 50;   // ✅ MODIFIÉ : Compte plus tôt (bras moins plié)
   double _maxAngle = 160;  // Valeur par défaut
   
   // ==================== SEUILS DE VALIDATION RENFORCÉS ====================
@@ -64,7 +64,7 @@ class CurlCounter {
   final double transitionZone = 20;  // Augmenté de 15 à 20
   
   // ✅ VALIDATION MULTI-FRAMES (doit rester X frames dans un état)
-  final int minFramesPerState = 5;   // Augmenté de 3 à 5
+  final int minFramesPerState = 2;   // ✅ ULTRA-RAPIDE : 2 frames seulement
   final int maxFramesInState = 90;   // Timeout (3 sec à 30fps)
   
   // ✅ SEUIL DE CONFIANCE (likelihood)
@@ -426,7 +426,7 @@ class CurlCounter {
     _isCalibrated = false;
     _calibrationMinAngles.clear();
     _calibrationMaxAngles.clear();
-    _minAngle = 40;
+    _minAngle = 50;  // ✅ MODIFIÉ
     _maxAngle = 160;
   }
 }
