@@ -3,30 +3,22 @@ import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 
 /// Bras sélectionné manuellement
 enum ArmSelection {
-  left, // Bras gauche
-  right, // Bras droit
-}
-
-/// États du mouvement de curl
-enum CurlState {
-  repos, // Bras tendu, au repos
-  montee, // En train de plier le bras
-  contraction, // Bras complètement plié (pic de contraction)
-  descente // En train de redescendre
+  left,   // Bras gauche
+  right,  // Bras droit
 }
 
 /// Qualité du mouvement
 enum MovementQuality {
-  excellent, // Forme parfaite
-  bon, // Forme acceptable
-  moyen, // Forme passable avec petites erreurs
-  mauvais // Triche détectée ou mouvement incorrect
+  excellent,  // Forme parfaite
+  bon,        // Forme acceptable
+  moyen,      // Forme passable
+  mauvais     // Triche détectée
 }
 
 class CurlCounter {
   // ==================== SÉLECTION DU BRAS ====================
-  ArmSelection selectedArm = ArmSelection.right; // Bras par défaut
-
+  ArmSelection selectedArm = ArmSelection.right;
+  
   // ==================== COMPTEURS ====================
   int count = 0;
   int excellentReps = 0;
@@ -34,67 +26,65 @@ class CurlCounter {
   int moyenReps = 0;
   int mauvaisReps = 0;
 
+  // ==================== SEUILS SIMPLES (APPROCHE PRO) ====================
+  
+  // Angles de base (avant calibration)
+  double _angleRepos = 140;         // Bras tendu (> 140° = au repos)
+  double _angleContraction = 75;    // Bras plié (< 75° = contraction)
+  
+  // ==================== VALIDATION ====================
+  final double minLikelihood = 0.75;        // 75% confiance minimum
+  final int minFramesInZone = 2;            // 2 frames dans zone contraction
+  final int smoothingFrames = 3;            // Lissage sur 3 frames
+  
+  // Détection de triche
+  final double shoulderMovementThreshold = 30;
+  final double elbowSwingThreshold = 40;
+  final double minROM = 70;  // Amplitude minimale
+  
   // ==================== ÉTAT INTERNE ====================
-  CurlState _currentState = CurlState.repos;
+  bool _repCounted = false;              // Rep déjà comptée ce cycle
+  int _framesInContractionZone = 0;     // Compteur frames en contraction
   MovementQuality _lastRepQuality = MovementQuality.bon;
-  bool _repCountedThisCycle = false;
-
-  // ==================== LISSAGE ROBUSTE ====================
-  final int smoothingFrames =
-      3; // ✅ RÉDUIT : Moyenne sur 3 frames (plus rapide)
+  
+  // Lissage
   final List<double> _recentAngles = [];
   final List<double> _recentShoulderY = [];
   final List<double> _recentElbowX = [];
-
-  // ==================== CALIBRATION ====================
-  bool _isCalibrated = false;
-  final int calibrationReps = 3;
-  final List<double> _calibrationMinAngles = [];
-  final List<double> _calibrationMaxAngles = [];
-
-  // Angles dynamiques (s'adaptent à l'utilisateur)
-  double _minAngle = 50; // ✅ MODIFIÉ : Compte plus tôt (bras moins plié)
-  double _maxAngle = 160; // Valeur par défaut
-
-  // ==================== SEUILS DE VALIDATION RENFORCÉS ====================
-  final double minROM = 70; // Amplitude minimale
-  final double shoulderMovementThreshold = 30; // Mouvement d'épaule max
-  final double elbowSwingThreshold = 40; // Mouvement de coude max
-
-  // ✅ ZONE NEUTRE (hystérésis pour éviter oscillations)
-  final double transitionZone = 20; // Augmenté de 15 à 20
-
-  // ✅ VALIDATION MULTI-FRAMES (doit rester X frames dans un état)
-  final int minFramesPerState = 2; // ✅ ULTRA-RAPIDE : 2 frames seulement
-  final int maxFramesInState = 90; // Timeout (3 sec à 30fps)
-
-  // ✅ SEUIL DE CONFIANCE (likelihood)
-  final double minLikelihood = 0.75; // 75% de confiance minimum (strict)
-
-  // ==================== TEMPS ====================
-  int _framesSinceStateChange = 0;
-
-  // ==================== MÉTRIQUES DU MOUVEMENT ACTUEL ====================
+  
+  // Métriques du mouvement
   double _minAngleThisRep = 180;
   double _maxAngleThisRep = 0;
   double _maxShoulderMovement = 0;
   double _maxElbowSwing = 0;
   double _baselineShoulderY = 0;
   double _baselineElbowX = 0;
+  bool _baselineSet = false;
+  
+  // Calibration
+  bool _isCalibrated = false;
+  final int calibrationReps = 3;
+  final List<double> _calibrationMinAngles = [];
+  final List<double> _calibrationMaxAngles = [];
 
   // ==================== GETTERS PUBLICS ====================
-  CurlState get currentState => _currentState;
   MovementQuality get lastRepQuality => _lastRepQuality;
   bool get isCalibrated => _isCalibrated;
-  String get calibrationStatus => _isCalibrated
-      ? 'Calibré ✓'
+  
+  String get calibrationStatus => _isCalibrated 
+      ? 'Calibré ✓' 
       : 'Calibration: ${_calibrationMinAngles.length}/$calibrationReps reps';
-
+  
   String get selectedArmText {
     return selectedArm == ArmSelection.left ? 'Gauche' : 'Droit';
   }
-
-  /// Retourne le pourcentage de reps de bonne qualité
+  
+  String get currentStateText {
+    if (_framesInContractionZone > 0) return '💪 Contraction';
+    if (_recentAngles.isNotEmpty && _recentAngles.last < _angleRepos) return '↑ Montée';
+    return 'Au repos';
+  }
+  
   double get qualityScore {
     if (count == 0) return 0;
     return ((excellentReps + bonReps) / count * 100);
@@ -102,128 +92,132 @@ class CurlCounter {
 
   // ==================== SWITCH DE BRAS ====================
   void switchArm() {
-    if (_currentState == CurlState.repos) {
-      selectedArm = selectedArm == ArmSelection.left
-          ? ArmSelection.right
-          : ArmSelection.left;
-
-      // Reset les historiques de lissage
-      _recentAngles.clear();
-      _recentShoulderY.clear();
-      _recentElbowX.clear();
-    }
+    selectedArm = selectedArm == ArmSelection.left 
+        ? ArmSelection.right 
+        : ArmSelection.left;
+    
+    // Reset
+    _recentAngles.clear();
+    _recentShoulderY.clear();
+    _recentElbowX.clear();
+    _framesInContractionZone = 0;
+    _repCounted = false;
+    _baselineSet = false;
   }
 
-  // ==================== VALIDATION DES LANDMARKS (RENFORCÉE) ====================
-
-  /// ✅ Vérification stricte avec likelihood
+  // ==================== VALIDATION DES LANDMARKS ====================
+  
   bool _isLandmarkValid(PoseLandmark? landmark) {
     if (landmark == null) return false;
-
-    // Vérifier les coordonnées
     if (landmark.x < 0 || landmark.y < 0) return false;
     if (landmark.x > 1e4 || landmark.y > 1e4) return false;
-
-    // ✅ CRITIQUE : Vérifier le score de confiance (likelihood)
-    // Seuil strict à 75% pour éliminer les faux positifs
+    
+    // ✅ Vérif confiance stricte
     if (landmark.likelihood < minLikelihood) return false;
-
+    
     return true;
   }
 
-  /// ✅ Validation complète avec vérifications anatomiques
   bool _areAllLandmarksValid(
-      PoseLandmark? shoulder, PoseLandmark? elbow, PoseLandmark? wrist) {
+    PoseLandmark? shoulder,
+    PoseLandmark? elbow,
+    PoseLandmark? wrist
+  ) {
+    // Épaule et coude OBLIGATOIRES
     if (!_isLandmarkValid(shoulder)) return false;
     if (!_isLandmarkValid(elbow)) return false;
-    if (!_isLandmarkValid(wrist)) return true;
-
-    // ✅ Vérifier la cohérence anatomique
+    
+    // ✅ Poignet FACULTATIF
+    // Si poignet invalide, on continue quand même
+    if (!_isLandmarkValid(wrist)) {
+      return true;  // OK sans poignet
+    }
+    
+    // Si poignet valide, vérifier cohérence anatomique
     double shoulderToElbow = _distance(shoulder!, elbow!);
     double elbowToWrist = _distance(elbow, wrist!);
-
-    // Distances physiologiques réalistes (en pixels)
+    
     if (shoulderToElbow < 50 || shoulderToElbow > 400) return false;
     if (elbowToWrist < 50 || elbowToWrist > 400) return false;
-
-    // Vérifier que le ratio est cohérent
+    
     double ratio = shoulderToElbow / elbowToWrist;
     if (ratio < 0.3 || ratio > 3.0) return false;
-
+    
     return true;
   }
-
+  
   double _distance(PoseLandmark a, PoseLandmark b) {
     return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2));
   }
 
   // ==================== CALCUL D'ANGLE ====================
   double _calculateAngle(
-      PoseLandmark shoulder, PoseLandmark elbow, PoseLandmark wrist) {
+    PoseLandmark shoulder,
+    PoseLandmark elbow,
+    PoseLandmark wrist
+  ) {
     final a = _Vector2D(shoulder.x - elbow.x, shoulder.y - elbow.y);
     final b = _Vector2D(wrist.x - elbow.x, wrist.y - elbow.y);
-
+    
     double dot = a.dx * b.dx + a.dy * b.dy;
     double magA = sqrt(a.dx * a.dx + a.dy * a.dy);
     double magB = sqrt(b.dx * b.dx + b.dy * b.dy);
-
+    
     if (magA == 0 || magB == 0) return 0;
-
+    
     double cosAngle = (dot / (magA * magB)).clamp(-1.0, 1.0);
     return acos(cosAngle) * 180 / pi;
   }
 
-  // ==================== LISSAGE ROBUSTE ====================
-
-  /// ✅ SUPER IMPORTANT : Lissage par moyenne mobile
+  // ==================== LISSAGE ====================
   double _addAndSmooth(List<double> list, double value) {
     list.add(value);
     if (list.length > smoothingFrames) {
       list.removeAt(0);
     }
-
-    // Ne lisser que si on a assez de frames
+    
     if (list.length < smoothingFrames) {
-      return value; // Pas assez de données, retourner la valeur brute
+      return value;
     }
-
+    
     return list.reduce((a, b) => a + b) / list.length;
   }
 
   // ==================== DÉTECTION DE TRICHE ====================
-  void _updateCheatDetection(double shoulderY, double elbowX) {
+  void _updateCheatDetection(double shoulderY, double elbowX, double angle) {
     double smoothedShoulderY = _addAndSmooth(_recentShoulderY, shoulderY);
     double smoothedElbowX = _addAndSmooth(_recentElbowX, elbowX);
-
-    if (_currentState == CurlState.repos && _framesSinceStateChange < 5) {
+    
+    // Établir baseline au repos
+    if (!_baselineSet && angle > _angleRepos) {
       _baselineShoulderY = smoothedShoulderY;
       _baselineElbowX = smoothedElbowX;
+      _baselineSet = true;
     }
-
-    double shoulderMovement = (smoothedShoulderY - _baselineShoulderY).abs();
-    double elbowSwing = (smoothedElbowX - _baselineElbowX).abs();
-
-    _maxShoulderMovement = max(_maxShoulderMovement, shoulderMovement);
-    _maxElbowSwing = max(_maxElbowSwing, elbowSwing);
+    
+    if (_baselineSet) {
+      double shoulderMovement = (smoothedShoulderY - _baselineShoulderY).abs();
+      double elbowSwing = (smoothedElbowX - _baselineElbowX).abs();
+      
+      _maxShoulderMovement = max(_maxShoulderMovement, shoulderMovement);
+      _maxElbowSwing = max(_maxElbowSwing, elbowSwing);
+    }
   }
 
   // ==================== ÉVALUATION DE LA QUALITÉ ====================
   MovementQuality _evaluateRepQuality() {
     int penalties = 0;
-
+    
     double rom = _maxAngleThisRep - _minAngleThisRep;
-    if (rom < minROM)
-      penalties += 2;
+    if (rom < minROM) penalties += 2;
     else if (rom < minROM + 20) penalties += 1;
-
-    if (_maxShoulderMovement > shoulderMovementThreshold * 1.5)
-      penalties += 2;
+    
+    if (_maxShoulderMovement > shoulderMovementThreshold * 1.5) penalties += 2;
     else if (_maxShoulderMovement > shoulderMovementThreshold) penalties += 1;
-
-    if (_maxElbowSwing > elbowSwingThreshold * 1.5)
-      penalties += 2;
+    
+    if (_maxElbowSwing > elbowSwingThreshold * 1.5) penalties += 2;
     else if (_maxElbowSwing > elbowSwingThreshold) penalties += 1;
-
+    
     if (penalties == 0) return MovementQuality.excellent;
     if (penalties == 1) return MovementQuality.bon;
     if (penalties == 2) return MovementQuality.moyen;
@@ -234,97 +228,22 @@ class CurlCounter {
   void _calibrateFromRep() {
     _calibrationMinAngles.add(_minAngleThisRep);
     _calibrationMaxAngles.add(_maxAngleThisRep);
-
+    
     if (_calibrationMinAngles.length >= calibrationReps) {
-      double avgMin =
-          _calibrationMinAngles.reduce((a, b) => a + b) / calibrationReps;
-      double avgMax =
-          _calibrationMaxAngles.reduce((a, b) => a + b) / calibrationReps;
-
-      _minAngle = avgMin - 10;
-      _maxAngle = avgMax + 10;
-
+      double avgMin = _calibrationMinAngles.reduce((a, b) => a + b) / calibrationReps;
+      double avgMax = _calibrationMaxAngles.reduce((a, b) => a + b) / calibrationReps;
+      
+      _angleContraction = avgMin + 5;   // Un peu au-dessus du min
+      _angleRepos = avgMax - 20;        // Un peu en dessous du max
+      
       _isCalibrated = true;
     }
   }
 
-  // ==================== MACHINE À ÉTATS (AVEC ZONE NEUTRE) ====================
-
-  /// ✅ Validation multi-frames : doit rester minFramesPerState dans un état
-  void _updateState(double smoothedAngle) {
-    _framesSinceStateChange++;
-
-    // Timeout de sécurité
-    if (_framesSinceStateChange > maxFramesInState) {
-      _resetRep();
-      return;
-    }
-
-    CurlState previousState = _currentState;
-
-    switch (_currentState) {
-      case CurlState.repos:
-        // ✅ Transition : Repos → Montée (avec zone neutre)
-        if (smoothedAngle < _maxAngle - transitionZone &&
-            _framesSinceStateChange > minFramesPerState) {
-          _currentState = CurlState.montee;
-          _resetRepMetrics();
-          _repCountedThisCycle = false;
-        }
-        break;
-
-      case CurlState.montee:
-        // ✅ Transition : Montée → Contraction (avec zone neutre)
-        if (smoothedAngle < _minAngle + transitionZone &&
-            _framesSinceStateChange > minFramesPerState) {
-          _currentState = CurlState.contraction;
-        }
-        // Retour : Montée → Repos (mouvement annulé)
-        else if (smoothedAngle > _maxAngle - transitionZone &&
-            _framesSinceStateChange > minFramesPerState) {
-          _resetRep();
-        }
-        break;
-
-      case CurlState.contraction:
-        // ✅ COMPTAGE ICI - dès qu'on atteint la contraction !
-        if (_framesSinceStateChange == minFramesPerState &&
-            !_repCountedThisCycle) {
-          _completeRep();
-          _repCountedThisCycle = true;
-        }
-
-        // ✅ Transition : Contraction → Descente (avec zone neutre)
-        if (smoothedAngle > _minAngle + transitionZone &&
-            _framesSinceStateChange > minFramesPerState) {
-          _currentState = CurlState.descente;
-        }
-        break;
-
-      case CurlState.descente:
-        // ✅ Transition : Descente → Repos (avec zone neutre)
-        if (smoothedAngle > _maxAngle - transitionZone &&
-            _framesSinceStateChange > minFramesPerState) {
-          _resetRep();
-        }
-        // Retour : Descente → Contraction (pas descendu assez)
-        else if (smoothedAngle < _minAngle + transitionZone) {
-          _currentState = CurlState.contraction;
-          _framesSinceStateChange = 0;
-        }
-        break;
-    }
-
-    // Reset du compteur de frames si changement d'état
-    if (_currentState != previousState) {
-      _framesSinceStateChange = 0;
-    }
-  }
-
-  // ==================== GESTION DES REPS ====================
+  // ==================== COMPTAGE DES REPS (LOGIQUE SIMPLE) ====================
   void _completeRep() {
     _lastRepQuality = _evaluateRepQuality();
-
+    
     count++;
     switch (_lastRepQuality) {
       case MovementQuality.excellent:
@@ -340,10 +259,12 @@ class CurlCounter {
         mauvaisReps++;
         break;
     }
-
+    
     if (!_isCalibrated && _lastRepQuality != MovementQuality.mauvais) {
       _calibrateFromRep();
     }
+    
+    _repCounted = true;
   }
 
   void _resetRepMetrics() {
@@ -351,28 +272,21 @@ class CurlCounter {
     _maxAngleThisRep = 0;
     _maxShoulderMovement = 0;
     _maxElbowSwing = 0;
+    _baselineSet = false;
   }
 
-  void _resetRep() {
-    _currentState = CurlState.repos;
-    _framesSinceStateChange = 0;
-    _resetRepMetrics();
-    _repCountedThisCycle = false;
-  }
-
-  // ==================== FONCTION PRINCIPALE D'UPDATE ====================
-
-  /// ✅ Version simplifiée : utilise UNIQUEMENT le bras sélectionné
+  // ==================== FONCTION PRINCIPALE D'UPDATE (SIMPLIFIÉE) ====================
+  
   void update(List<Pose> poses) {
     if (poses.isEmpty) return;
-
+    
     final pose = poses.first;
-
-    // ✅ Récupérer UNIQUEMENT les landmarks du bras sélectionné
+    
+    // Récupérer landmarks du bras sélectionné
     PoseLandmark? shoulder;
     PoseLandmark? elbow;
     PoseLandmark? wrist;
-
+    
     if (selectedArm == ArmSelection.left) {
       shoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
       elbow = pose.landmarks[PoseLandmarkType.leftElbow];
@@ -382,32 +296,52 @@ class CurlCounter {
       elbow = pose.landmarks[PoseLandmarkType.rightElbow];
       wrist = pose.landmarks[PoseLandmarkType.rightWrist];
     }
-
-    // ✅ Validation stricte (likelihood + anatomie)
+    
+    // ✅ VALIDATION STRICTE (likelihood + anatomie)
     if (!_areAllLandmarksValid(shoulder, elbow, wrist)) {
-      return; // Ignorer cette frame si pas valide
+      return;
     }
-
-    // Calcul de l'angle
+    
+    // Calcul angle
     double angle = _calculateAngle(shoulder!, elbow!, wrist!);
-
-    // ✅ LISSAGE ROBUSTE (moyenne sur 5 frames)
+    
+    // ✅ LISSAGE ROBUSTE
     double smoothedAngle = _addAndSmooth(_recentAngles, angle);
-
-    // Ne continuer que si on a assez de frames pour un lissage fiable
+    
     if (_recentAngles.length < smoothingFrames) {
-      return; // Attendre d'avoir 5 frames
+      return;  // Attendre d'avoir assez de frames
     }
-
+    
     // Suivre les extremums
     _minAngleThisRep = min(_minAngleThisRep, smoothedAngle);
     _maxAngleThisRep = max(_maxAngleThisRep, smoothedAngle);
-
+    
     // Détection de triche
-    _updateCheatDetection(shoulder.y, elbow.x);
-
-    // Machine à états
-    _updateState(smoothedAngle);
+    _updateCheatDetection(shoulder.y, elbow.x, smoothedAngle);
+    
+    // ==================== LOGIQUE SIMPLE (APPROCHE PRO) ====================
+    
+    // 1️⃣ BRAS AU REPOS (> angleRepos) → Reset pour nouvelle rep
+    if (smoothedAngle > _angleRepos) {
+      _framesInContractionZone = 0;
+      _repCounted = false;
+      _resetRepMetrics();
+    }
+    
+    // 2️⃣ DANS ZONE DE CONTRACTION (< angleContraction)
+    if (smoothedAngle < _angleContraction) {
+      _framesInContractionZone++;
+      
+      // 3️⃣ COMPTAGE après minFramesInZone frames
+      if (_framesInContractionZone >= minFramesInZone && !_repCounted) {
+        _completeRep();  // ✅ COMPTE !
+      }
+    } else {
+      // Hors zone de contraction → reset compteur
+      if (_framesInContractionZone > 0 && _framesInContractionZone < minFramesInZone) {
+        _framesInContractionZone = 0;  // Pas resté assez longtemps
+      }
+    }
   }
 
   // ==================== RESET PUBLIC ====================
@@ -417,18 +351,20 @@ class CurlCounter {
     bonReps = 0;
     moyenReps = 0;
     mauvaisReps = 0;
-    _resetRep();
+    _repCounted = false;
+    _framesInContractionZone = 0;
     _recentAngles.clear();
     _recentShoulderY.clear();
     _recentElbowX.clear();
+    _resetRepMetrics();
   }
 
   void resetCalibration() {
     _isCalibrated = false;
     _calibrationMinAngles.clear();
     _calibrationMaxAngles.clear();
-    _minAngle = 50; // ✅ MODIFIÉ
-    _maxAngle = 160;
+    _angleContraction = 75;
+    _angleRepos = 140;
   }
 }
 

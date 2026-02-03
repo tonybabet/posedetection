@@ -2,9 +2,10 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'detector_view.dart';
-import 'painters/pose_painter.dart';  // ✅ PosePainter original non modifié
+import 'painters/pose_painter.dart';
 import 'curl_counter.dart';
 
 class PoseDetectorView extends StatefulWidget {
@@ -31,7 +32,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
   @override
   void initState() {
     super.initState();
-    // Configuration TTS
+    WakelockPlus.enable();
     _flutterTts.setLanguage('fr-FR');
     _flutterTts.setSpeechRate(0.5);
     _flutterTts.setVolume(1.0);
@@ -41,6 +42,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
   void dispose() {
     _canProcess = false;
     _poseDetector.close();
+    WakelockPlus.disable();
     super.dispose();
   }
 
@@ -49,7 +51,6 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
     return SafeArea(
       child: Stack(
         children: [
-          // Vue de la caméra avec détection
           DetectorView(
             title: 'Pose Detector',
             customPaint: _customPaint,
@@ -60,16 +61,17 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
                 _cameraLensDirection = value,
           ),
 
-          // Indicateur d'état du mouvement (en haut)
+          // Indicateur d'état (simplifié)
           Positioned(
             top: MediaQuery.of(context).viewPadding.top + 20,
             left: 0,
             right: 0,
             child: Center(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                 decoration: BoxDecoration(
-                  color: _getStateColor().withOpacity(0.9),
+                  color: Colors.blue.withOpacity(0.9),
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
@@ -80,7 +82,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
                   ],
                 ),
                 child: Text(
-                  _getStateText(),
+                  _curlCounter.currentStateText,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 18,
@@ -91,7 +93,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
             ),
           ),
 
-          // ✅ SWITCH DE BRAS (en haut, sous l'état)
+          // Switch de bras
           Positioned(
             top: MediaQuery.of(context).viewPadding.top + 65,
             left: 0,
@@ -104,9 +106,10 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
                   });
                 },
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                   decoration: BoxDecoration(
-                    color: _curlCounter.selectedArm == ArmSelection.left 
+                    color: _curlCounter.selectedArm == ArmSelection.left
                         ? Colors.green.withOpacity(0.9)
                         : Colors.blue.withOpacity(0.9),
                     borderRadius: BorderRadius.circular(16),
@@ -150,13 +153,14 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
             ),
           ),
 
-          // Statut de calibration (en haut à droite)
+          // Statut calibration
           if (!_curlCounter.isCalibrated)
             Positioned(
               top: MediaQuery.of(context).viewPadding.top + 110,
               right: 16,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: Colors.orange.withOpacity(0.9),
                   borderRadius: BorderRadius.circular(12),
@@ -172,14 +176,15 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
               ),
             ),
 
-          // Compteur principal (en bas)
+          // Compteur principal
           Positioned(
             bottom: MediaQuery.of(context).viewPadding.bottom + 100,
             left: 0,
             right: 0,
             child: Center(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.7),
                   borderRadius: BorderRadius.circular(25),
@@ -216,7 +221,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
             ),
           ),
 
-          // Indicateur de qualité de la dernière rep
+          // Indicateur qualité
           if (_curlCounter.count > 0)
             Positioned(
               bottom: MediaQuery.of(context).viewPadding.bottom + 180,
@@ -224,7 +229,8 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
               right: 0,
               child: Center(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
                     color: _getQualityColor().withOpacity(0.9),
                     borderRadius: BorderRadius.circular(16),
@@ -252,7 +258,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
               ),
             ),
 
-          // Statistiques détaillées (en bas à gauche)
+          // Stats détaillées
           Positioned(
             bottom: MediaQuery.of(context).viewPadding.bottom + 20,
             left: 16,
@@ -274,7 +280,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
             ),
           ),
 
-          // Score de qualité global (en bas à droite)
+          // Score qualité
           if (_curlCounter.count > 0)
             Positioned(
               bottom: MediaQuery.of(context).viewPadding.bottom + 20,
@@ -308,7 +314,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
               ),
             ),
 
-          // Bouton reset (en haut à gauche)
+          // Bouton reset
           Positioned(
             top: MediaQuery.of(context).viewPadding.top + 110,
             left: 16,
@@ -327,8 +333,6 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
       ),
     );
   }
-
-  // ==================== HELPERS POUR L'AFFICHAGE ====================
 
   Widget _buildStatRow(String icon, int count, Color color) {
     return Padding(
@@ -351,32 +355,6 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
         ],
       ),
     );
-  }
-
-  String _getStateText() {
-    switch (_curlCounter.currentState) {
-      case CurlState.repos:
-        return 'Au repos';
-      case CurlState.montee:
-        return '↑ Montée';
-      case CurlState.contraction:
-        return '💪 Contraction';
-      case CurlState.descente:
-        return '↓ Descente';
-    }
-  }
-
-  Color _getStateColor() {
-    switch (_curlCounter.currentState) {
-      case CurlState.repos:
-        return Colors.blue;
-      case CurlState.montee:
-        return Colors.orange;
-      case CurlState.contraction:
-        return Colors.red;
-      case CurlState.descente:
-        return Colors.green;
-    }
   }
 
   String _getQualityText() {
@@ -425,8 +403,6 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
     return Colors.red;
   }
 
-  // ==================== TRAITEMENT DES IMAGES ====================
-
   Future<void> _processImage(InputImage inputImage) async {
     if (!_canProcess || _isBusy) return;
     _isBusy = true;
@@ -434,22 +410,15 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
     setState(() => _text = '');
 
     try {
-      // 1️⃣ Détecte les poses
       final poses = await _poseDetector.processImage(inputImage);
-
-      // 2️⃣ Sauvegarde le nombre précédent
       final int previousCount = _curlCounter.count;
 
-      // 3️⃣ Met à jour le compteur
       _curlCounter.update(poses);
 
-      // 4️⃣ Si le compteur a augmenté, prononce le nombre
       if (_curlCounter.count > previousCount) {
-        // Ne pas utiliser await pour ne pas bloquer la détection
         _flutterTts.speak('${_curlCounter.count}');
       }
 
-      // 5️⃣ Dessine les landmarks avec PosePainter original
       if (inputImage.metadata?.size != null &&
           inputImage.metadata?.rotation != null) {
         final painter = PosePainter(
@@ -463,7 +432,6 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
         _customPaint = null;
       }
     } catch (e) {
-      // Gestion d'erreur silencieuse - juste skip cette frame
       print('Erreur de détection: $e');
     }
 
