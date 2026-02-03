@@ -2,8 +2,6 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
-
 import 'detector_view.dart';
 import 'painters/pose_painter.dart';
 import 'curl_counter.dart';
@@ -32,7 +30,6 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
   @override
   void initState() {
     super.initState();
-    WakelockPlus.enable();
     _flutterTts.setLanguage('fr-FR');
     _flutterTts.setSpeechRate(0.5);
     _flutterTts.setVolume(1.0);
@@ -42,7 +39,6 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
   void dispose() {
     _canProcess = false;
     _poseDetector.close();
-    WakelockPlus.disable();
     super.dispose();
   }
 
@@ -68,8 +64,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
             right: 0,
             child: Center(
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                 decoration: BoxDecoration(
                   color: Colors.blue.withOpacity(0.9),
                   borderRadius: BorderRadius.circular(20),
@@ -106,10 +101,9 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
                   });
                 },
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                   decoration: BoxDecoration(
-                    color: _curlCounter.selectedArm == ArmSelection.left
+                    color: _curlCounter.selectedArm == ArmSelection.left 
                         ? Colors.green.withOpacity(0.9)
                         : Colors.blue.withOpacity(0.9),
                     borderRadius: BorderRadius.circular(16),
@@ -159,8 +153,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
               top: MediaQuery.of(context).viewPadding.top + 110,
               right: 16,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: Colors.orange.withOpacity(0.9),
                   borderRadius: BorderRadius.circular(12),
@@ -183,8 +176,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
             right: 0,
             child: Center(
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.7),
                   borderRadius: BorderRadius.circular(25),
@@ -229,8 +221,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
               right: 0,
               child: Center(
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
                     color: _getQualityColor().withOpacity(0.9),
                     borderRadius: BorderRadius.circular(16),
@@ -412,13 +403,19 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
     try {
       final poses = await _poseDetector.processImage(inputImage);
       final int previousCount = _curlCounter.count;
-
+      final String previousCalibStatus = _curlCounter.calibrationStatus;
+      
       _curlCounter.update(poses);
-
+      
       if (_curlCounter.count > previousCount) {
         _flutterTts.speak('${_curlCounter.count}');
       }
-
+      
+      // ✅ Vérifier si le statut de calibration a changé (y compris progression)
+      if (_curlCounter.calibrationStatus != previousCalibStatus) {
+        print('🔄 UI: Calibration update - ${_curlCounter.calibrationStatus}');
+      }
+      
       if (inputImage.metadata?.size != null &&
           inputImage.metadata?.rotation != null) {
         final painter = PosePainter(
@@ -436,6 +433,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
     }
 
     _isBusy = false;
+    // ✅ setState() TOUJOURS appelé pour rafraîchir l'UI
     if (mounted) setState(() {});
   }
 }
