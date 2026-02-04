@@ -2,6 +2,8 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
+
 import 'detector_view.dart';
 import 'painters/pose_painter.dart';
 import 'curl_counter.dart';
@@ -30,15 +32,24 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
   @override
   void initState() {
     super.initState();
+    
+    // Configuration TTS
     _flutterTts.setLanguage('fr-FR');
     _flutterTts.setSpeechRate(0.5);
     _flutterTts.setVolume(1.0);
+    
+    // ✅ Activer wakelock pour empêcher l'écran de s'éteindre
+    WakelockPlus.enable();
   }
 
   @override
   void dispose() {
     _canProcess = false;
     _poseDetector.close();
+    
+    // ✅ Désactiver wakelock quand on quitte la page
+    WakelockPlus.disable();
+    
     super.dispose();
   }
 
@@ -411,11 +422,6 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
         _flutterTts.speak('${_curlCounter.count}');
       }
       
-      // ✅ Vérifier si le statut de calibration a changé (y compris progression)
-      if (_curlCounter.calibrationStatus != previousCalibStatus) {
-        print('🔄 UI: Calibration update - ${_curlCounter.calibrationStatus}');
-      }
-      
       if (inputImage.metadata?.size != null &&
           inputImage.metadata?.rotation != null) {
         final painter = PosePainter(
@@ -429,7 +435,7 @@ class _PoseDetectorViewState extends State<PoseDetectorView> {
         _customPaint = null;
       }
     } catch (e) {
-      print('Erreur de détection: $e');
+      // Ignorer les erreurs silencieusement
     }
 
     _isBusy = false;

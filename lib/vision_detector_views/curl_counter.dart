@@ -64,8 +64,7 @@ class CurlCounter {
   // Calibration
   bool _isCalibrated = false;
   final int calibrationReps = 3;
-  final List<double> _calibrationMinAngles = [];
-  final List<double> _calibrationMaxAngles = [];
+  final List<double> _calibrationMaxAngles = [];  // On garde seulement les MAX
 
   // ==================== GETTERS PUBLICS ====================
   MovementQuality get lastRepQuality => _lastRepQuality;
@@ -73,7 +72,7 @@ class CurlCounter {
   
   String get calibrationStatus => _isCalibrated 
       ? 'Calibré ✓' 
-      : 'Calibration: ${_calibrationMinAngles.length}/$calibrationReps reps';
+      : 'Calibration: ${_calibrationMaxAngles.length}/$calibrationReps reps';
   
   String get selectedArmText {
     return selectedArm == ArmSelection.left ? 'Gauche' : 'Droit';
@@ -226,15 +225,14 @@ class CurlCounter {
 
   // ==================== CALIBRATION ====================
   void _calibrateFromRep() {
-    _calibrationMinAngles.add(_minAngleThisRep);
+    // On enregistre seulement l'angle MAX (bras tendu)
     _calibrationMaxAngles.add(_maxAngleThisRep);
     
-    if (_calibrationMinAngles.length >= calibrationReps) {
-      double avgMin = _calibrationMinAngles.reduce((a, b) => a + b) / calibrationReps;
+    if (_calibrationMaxAngles.length >= calibrationReps) {
       double avgMax = _calibrationMaxAngles.reduce((a, b) => a + b) / calibrationReps;
       
-      _angleContraction = avgMin + 5;   // Un peu au-dessus du min
-      _angleRepos = avgMax - 20;        // Un peu en dessous du max
+      // Calibrer seulement l'angle de repos (bras tendu)
+      _angleRepos = avgMax - 20;  // S'adapte à TON extension max
       
       _isCalibrated = true;
     }
@@ -361,7 +359,6 @@ class CurlCounter {
 
   void resetCalibration() {
     _isCalibrated = false;
-    _calibrationMinAngles.clear();
     _calibrationMaxAngles.clear();
     _angleContraction = 75;
     _angleRepos = 140;
