@@ -16,6 +16,13 @@ class PosePainter extends CustomPainter {
   final InputImageRotation rotation;
   final CameraLensDirection cameraLensDirection;
 
+  final double confidenceThreshold = 0.8; // Ajustez entre 0.4 et 0.7
+
+  // ✅ SIMPLE : Juste vérifier la confiance
+  bool isLandmarkVisible(PoseLandmark landmark) {
+    return landmark.likelihood > confidenceThreshold;
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
@@ -34,64 +41,73 @@ class PosePainter extends CustomPainter {
       ..color = Colors.blueAccent;
 
     for (final pose in poses) {
+      // Dessiner les points visibles
       pose.landmarks.forEach((_, landmark) {
-        canvas.drawCircle(
-            Offset(
-              translateX(
-                landmark.x,
-                size,
-                imageSize,
-                rotation,
-                cameraLensDirection,
+        if (isLandmarkVisible(landmark)) {
+          canvas.drawCircle(
+              Offset(
+                translateX(
+                  landmark.x,
+                  size,
+                  imageSize,
+                  rotation,
+                  cameraLensDirection,
+                ),
+                translateY(
+                  landmark.y,
+                  size,
+                  imageSize,
+                  rotation,
+                  cameraLensDirection,
+                ),
               ),
-              translateY(
-                landmark.y,
-                size,
-                imageSize,
-                rotation,
-                cameraLensDirection,
-              ),
-            ),
-            1,
-            paint);
+              1,
+              paint);
+        }
       });
 
+      // Dessiner les lignes SEULEMENT si les 2 points sont visibles
       void paintLine(
           PoseLandmarkType type1, PoseLandmarkType type2, Paint paintType) {
         final PoseLandmark joint1 = pose.landmarks[type1]!;
         final PoseLandmark joint2 = pose.landmarks[type2]!;
-        canvas.drawLine(
-            Offset(
-                translateX(
-                  joint1.x,
-                  size,
-                  imageSize,
-                  rotation,
-                  cameraLensDirection,
-                ),
-                translateY(
-                  joint1.y,
-                  size,
-                  imageSize,
-                  rotation,
-                  cameraLensDirection,
-                )),
-            Offset(
-                translateX(
-                  joint2.x,
-                  size,
-                  imageSize,
-                  rotation,
-                  cameraLensDirection,
-                ),
-                translateY(
-                  joint2.y,
-                  size,
-                  imageSize,
-                  rotation,
-                  cameraLensDirection,
-                )),
-            paintType);
+
+        // ✅ Si les 2 points sont visibles → dessiner la ligne
+        // ❌ Si un seul point est hors champ → pas de ligne
+        if (isLandmarkVisible(joint1) && isLandmarkVisible(joint2)) {
+          canvas.drawLine(
+              Offset(
+                  translateX(
+                    joint1.x,
+                    size,
+                    imageSize,
+                    rotation,
+                    cameraLensDirection,
+                  ),
+                  translateY(
+                    joint1.y,
+                    size,
+                    imageSize,
+                    rotation,
+                    cameraLensDirection,
+                  )),
+              Offset(
+                  translateX(
+                    joint2.x,
+                    size,
+                    imageSize,
+                    rotation,
+                    cameraLensDirection,
+                  ),
+                  translateY(
+                    joint2.y,
+                    size,
+                    imageSize,
+                    rotation,
+                    cameraLensDirection,
+                  )),
+              paintType);
+        }
       }
 
       //Draw arms
